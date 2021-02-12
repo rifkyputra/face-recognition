@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:firebase_ml_vision/firebase_ml_vision.dart';
 import 'package:flutter/material.dart';
@@ -47,11 +48,12 @@ class _CameraViewState extends State<CameraView> {
   var _img;
   bool isFaceDetected;
   List<Rect> rect = <Rect>[];
+  String photoLabels = '';
 
   @override
   void initState() {
     availableCameras().then((cam) {
-      _cameraController = CameraController(cam[1], ResolutionPreset.medium)
+      _cameraController = CameraController(cam[1], ResolutionPreset.low)
         ..initialize().then((_) {
           if (!mounted) {
             return;
@@ -74,21 +76,93 @@ class _CameraViewState extends State<CameraView> {
     super.dispose();
   }
 
+  Future<void> _capture() async {
+    if (rect != null) {
+      rect.clear();
+    }
+    try {
+      final fil = await _cameraController.takePicture();
+      _img = fil.path;
+      final l = await ImageFeatureDetector.detectRectangles(_img);
+      _imageData = await decodeImageFromList(await fil.readAsBytes());
+
+      final FirebaseVisionImage visionImage =
+          FirebaseVisionImage.fromFile(File(_img));
+
+      final FaceDetector faceDetector = FirebaseVision.instance.faceDetector();
+      final ImageLabeler labeler = FirebaseVision.instance.imageLabeler();
+
+      final List<Face> faces = await faceDetector.processImage(visionImage);
+
+      photoLabels = '';
+      await labeler.processImage(visionImage)
+        ..forEach((label) {
+          photoLabels += label.text + ' ';
+          print('label : ');
+          print(label.text);
+        });
+
+      for (Face face in faces) {
+        rect.add(face.boundingBox);
+        final double rotY =
+            face.headEulerAngleY; // Head is rotated to the right rotY degrees
+        final double rotZ =
+            face.headEulerAngleZ; // Head is tilted sideways rotZ degre
+      }
+      setState(() {
+        isFaceDetected = true;
+      });
+
+      faceDetector.close();
+      labeler.close();
+
+      // imageData =
+      //     await ImageFeatureDetector.detectAndTransformRectangle(
+      //         _img);
+
+    } catch (e) {
+      print(e);
+    }
+    // print(xfile.name);
+
+    // _img = File.fromRawPath(await xfile.);
+
+    setState(() {});
+    // print('${_cameraController.takePicture}');
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_cameraController?.value?.isInitialized ?? false) {
       return Stack(
-        alignment: Alignment.center,
+        // alignment: Alignment.center,
         children: [
-          CameraPreview(_cameraController),
+          Positioned(
+            bottom: 0,
+            child: Container(
+              width: MediaQuery.of(context).size.width,
+              height: MediaQuery.of(context).size.height * 0.7,
+              child: GestureDetector(
+                onTap: () {
+                  // _cameraController.setFocusMode(FocusMode.auto);
+                  // _cameraController.setFocusPoint();
+                  print('some');
+                },
+                child: AspectRatio(
+                  aspectRatio: _cameraController.value.aspectRatio,
+                  child: CameraPreview(_cameraController),
+                ),
+              ),
+            ),
+          ),
           if (_img != null)
             Positioned(
               right: 0,
               top: 0,
               child: Image.file(
                 File(_img),
-                width: 170,
-                height: 220,
+                width: 222,
+                height: MediaQuery.of(context).size.height * 0.3,
               ),
             ),
           if (_imageData != null)
@@ -96,79 +170,50 @@ class _CameraViewState extends State<CameraView> {
               left: 0,
               top: 0,
               child: Container(
-                width: 170,
-                height: 220,
+                width: 222,
+                height: MediaQuery.of(context).size.height * 0.3,
                 child: FittedBox(
                   child: SizedBox(
                     width: _imageData.width.toDouble(),
                     height: _imageData.height.toDouble(),
-                    child: CustomPaint(
-                      painter: FacePainter(rect: rect, imageFile: _imageData),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        CustomPaint(
+                          painter: FacePainter(
+                            rect: rect,
+                            imageFile: _imageData,
+                            captionText: photoLabels,
+                          ),
+                        ),
+                        Text(
+                          'photoLabels.toString()',
+                          style: TextStyle(color: Colors.blue, fontSize: 16),
+                        ),
+                      ],
                     ),
                   ),
+                  // Text(
+                  //   photoLabels.toString(),
+                  //   style: TextStyle(color: Colors.blue, fontSize: 33),
+                  // ),
                 ),
               ),
             ),
-          Positioned(
-            bottom: 80,
-            child: MaterialButton(
-              elevation: 3,
-              onPressed: () async {
-                if (rect != null) {
-                  rect.clear();
-                }
-                try {
-                  final fil = await _cameraController.takePicture();
-                  // _img = File.fromRawPath(await fil.readAsBytes()).path;
-                  _img = fil.path;
-                  final l = await ImageFeatureDetector.detectRectangles(_img);
-                  _imageData =
-                      await decodeImageFromList(await fil.readAsBytes());
-
-                  final FirebaseVisionImage visionImage =
-                      FirebaseVisionImage.fromFile(File(_img));
-
-                  final FaceDetector faceDetector =
-                      FirebaseVision.instance.faceDetector();
-                  final List<Face> faces =
-                      await faceDetector.processImage(visionImage);
-
-                  for (Face face in faces) {
-                    rect.add(face.boundingBox);
-                    final double rotY = face
-                        .headEulerAngleY; // Head is rotated to the right rotY degrees
-                    final double rotZ = face
-                        .headEulerAngleZ; // Head is tilted sideways rotZ degre
-                  }
-                  setState(() {
-                    isFaceDetected = true;
-                  });
-                  faceDetector.close();
-
-                  // imageData =
-                  //     await ImageFeatureDetector.detectAndTransformRectangle(
-                  //         _img);
-
-                } catch (e) {
-                  print(e);
-                }
-                // print(xfile.name);
-
-                // _img = File.fromRawPath(await xfile.);
-
-                setState(() {});
-                // print('${_cameraController.takePicture}');
-              },
-              child: Align(
-                child: Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.camera),
+          Align(
+            // bottom: 80,
+            alignment: Alignment.bottomCenter,
+            child: GestureDetector(
+              onTap: () => _capture(),
+              child: Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
                 ),
+                child: Icon(Icons.camera),
               ),
             ),
           ),
@@ -182,8 +227,10 @@ class _CameraViewState extends State<CameraView> {
 class FacePainter extends CustomPainter {
   List<Rect> rect;
   var imageFile;
+  final String captionText;
 
-  FacePainter({@required this.rect, @required this.imageFile});
+  FacePainter(
+      {@required this.rect, @required this.imageFile, this.captionText});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -199,6 +246,25 @@ class FacePainter extends CustomPainter {
           ..strokeWidth = 6.0
           ..style = PaintingStyle.stroke,
       );
+    }
+
+    if (captionText != null && captionText != '' && rect.isNotEmpty) {
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: '$captionText',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 17,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      textPainter.layout(
+        minWidth: 0,
+        maxWidth: 200,
+      );
+      // final offset = Offset(rect[0].bottomLeft, rect[0].size.height);
+      textPainter.paint(canvas, rect[0].bottomLeft);
     }
   }
 
